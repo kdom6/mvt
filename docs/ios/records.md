@@ -16,9 +16,21 @@ If indicators are provided through the command-line, processes and domains are c
 
 ---
 
+### `applications.json`
+
+!!! info "Availability"
+    Backup: :material-check:
+    Full filesystem dump: :material-check:
+
+This JSON file is created by mvt-ios' `Applications` module. The module extracts the list of applications installed on the device from the `Info.plist` file in backup, or from the `iTunesMetadata.plist` files in a file system dump. These records contains detailed information on the source and installation of the app.
+
+If indicators are provided through the command-line, processes and application ids are checked against the app name of each application. It also flags any applications not installed from the AppStore. Any matches are stored in *applications_detected.json*.
+
+---
+
 ### `backup_info.json`
 
-!!! info "Availabiliy"
+!!! info "Availability"
     Backup: :material-check:
     Full filesystem dump: :material-close:
 
@@ -35,6 +47,18 @@ This JSON file is created by mvt-ios' `BackupInfo` module. The module extracts s
 This JSON file is created by mvt-ios' `CacheFiles` module. The module extracts records from all SQLite database files stored on disk with the name *Cache.db*. These databases typically contain data from iOS' [internal URL caching](https://developer.apple.com/documentation/foundation/nsurlcache). Through this module you might be able to recover records of HTTP requests and responses performed my applications as well as system services, that would otherwise be unavailable. For example, you might see HTTP requests part of an exploitation chain performed by an iOS service attempting to download a first stage malicious payload.
 
 If indicators are provided through the command-line, they are checked against the requested URL. Any matches are stored in *cache_files_detected.json*.
+
+---
+
+### `calendar.json`
+
+!!! info "Availability"
+    Backup: :material-check:
+    Full filesystem dump: :material-check:
+
+This JSON file is created by mvt-ios' `Calendar` module. This module extracts all CalendarItems from the `Calendar.sqlitedb` database. This database contains all calendar entries from the different calendars installed on the phone.
+
+If indicators are provided through the command-line, email addresses are checked against the inviter's email of the different events. Any matches are stored in *calendar_detected.json*.
 
 ---
 
@@ -115,6 +139,16 @@ If indicators are provided through the command-line, they are checked against bo
 This JSON file is created by mvt-ios' `FirefoxHistory` module. The module extracts records from a SQLite database located at */private/var/mobile/profile.profile/browser.db*, which contains a history of URL visits.
 
 If indicators are provided through the command-line, they are checked against the visited URL. Any matches are stored in *firefox_history_detected.json*.
+
+---
+
+### `global_preferences.json`
+
+!!! info "Availability"
+    Backup: :material-check:
+    Full filesystem dump: :material-check:
+
+This JSON file is created by mvt-ios' `GlobalPreferences` module. The module extracts records from a Plist file located at */private/var/mobile/Library/Preferences/.GlobalPreferences.plist*, which contains a system preferences including if Lockdown Mode is enabled.
 
 ---
 
@@ -272,7 +306,7 @@ If indicators are provided through the command-line, they are checked against th
     Backup: :material-check:
     Full filesystem dump: :material-check:
 
-This JSON file is created by mvt-ios' `SMS` module. The module extracts a list of SMS messages containing HTTP links from the SQLite database located at */private/var/mobile/Library/SMS/sms.db*.
+This JSON file is created by mvt-ios' `SMS` module. The module extracts a list of SMS messages from the SQLite database located at */private/var/mobile/Library/SMS/sms.db*.
 
 If indicators are provided through the command-line, they are checked against the extracted HTTP links. Any matches are stored in *sms_detected.json*.
 
@@ -374,7 +408,7 @@ If indicators are provided through the command-line, they are checked against th
     Backup: :material-check:
     Full filesystem dump: :material-check:
 
-This JSON file is created by mvt-ios' `WhatsApp` module. The module extracts a list of WhatsApp messages containing HTTP links from the SQLite database located at *private/var/mobile/Containers/Shared/AppGroup/\*/ChatStorage.sqlite*.
+This JSON file is created by mvt-ios' `WhatsApp` module. The module extracts a list of WhatsApp messages from the SQLite database located at *private/var/mobile/Containers/Shared/AppGroup/\*/ChatStorage.sqlite*.
 
 If indicators are provided through the command-line, they are checked against the extracted HTTP links. Any matches are stored in *whatsapp_detected.json*.
 

@@ -42,19 +42,19 @@ It is recommended to try installing and running MVT from [Windows Subsystem Linu
 
 ## Installing MVT
 
-If you haven't done so, you can add this to your `.bashrc` or `.zshrc` file in order to add locally installed Pypi binaries to your `$PATH`:
+If you haven't done so, you can add this to your `.bashrc` or `.zshrc` file in order to add locally installed PyPI binaries to your `$PATH`:
 
 ```bash
 export PATH=$PATH:~/.local/bin
 ```
 
-Then you can install MVT directly from [pypi](https://pypi.org/project/mvt/)
+Then you can install MVT directly from [PyPI](https://pypi.org/project/mvt/)
 
 ```bash
 pip3 install mvt
 ```
 
-Or from the source code:
+If you want to have the latest features in development, you can install MVT directly from the source code. If you installed MVT previously from pypi, you should first uninstall it using `pip3 uninstall mvt` and then install from the source code:
 
 ```bash
 git clone https://github.com/mvt-project/mvt.git

@@ -1,5 +1,5 @@
 # Mobile Verification Toolkit (MVT)
-# Copyright (c) 2021-2022 The MVT Project Authors.
+# Copyright (c) 2021-2023 The MVT Authors.
 # Use of this software is governed by the MVT License 1.1 that can be found at
 #   https://license.mvt.re/1.1/
 
@@ -16,27 +16,53 @@ def generate_test_stix_file(file_path):
     processes = ["Launch"]
     emails = ["foobar@example.org"]
     filenames = ["/var/foobar/txt"]
+    android_property = ["sys.foobar"]
 
     res = []
     malware = Malware(name="TestMalware", is_family=False, description="")
     res.append(malware)
     for d in domains:
-        i = Indicator(indicator_types=["malicious-activity"], pattern="[domain-name:value='{}']".format(d), pattern_type="stix")
+        i = Indicator(
+            indicator_types=["malicious-activity"],
+            pattern="[domain-name:value='{}']".format(d),
+            pattern_type="stix",
+        )
         res.append(i)
         res.append(Relationship(i, "indicates", malware))
 
     for p in processes:
-        i = Indicator(indicator_types=["malicious-activity"], pattern="[process:name='{}']".format(p), pattern_type="stix")
+        i = Indicator(
+            indicator_types=["malicious-activity"],
+            pattern="[process:name='{}']".format(p),
+            pattern_type="stix",
+        )
         res.append(i)
         res.append(Relationship(i, "indicates", malware))
 
     for f in filenames:
-        i = Indicator(indicator_types=["malicious-activity"], pattern="[file:name='{}']".format(f), pattern_type="stix")
+        i = Indicator(
+            indicator_types=["malicious-activity"],
+            pattern="[file:name='{}']".format(f),
+            pattern_type="stix",
+        )
         res.append(i)
         res.append(Relationship(i, "indicates", malware))
 
     for e in emails:
-        i = Indicator(indicator_types=["malicious-activity"], pattern="[email-addr:value='{}']".format(e), pattern_type="stix")
+        i = Indicator(
+            indicator_types=["malicious-activity"],
+            pattern="[email-addr:value='{}']".format(e),
+            pattern_type="stix",
+        )
+        res.append(i)
+        res.append(Relationship(i, "indicates", malware))
+
+    for p in android_property:
+        i = Indicator(
+            indicator_types=["malicious-activity"],
+            pattern="[android-property:name='{}']".format(p),
+            pattern_type="stix",
+        )
         res.append(i)
         res.append(Relationship(i, "indicates", malware))
 

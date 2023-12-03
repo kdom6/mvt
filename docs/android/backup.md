@@ -24,7 +24,7 @@ Some recent phones will enforce the utilisation of a password to encrypt the bac
 
 ## Unpack and check the backup
 
-MVT includes a partial implementation of the Android Backup parsing, because of the implementation difference in the compression algorithm between Java and Python. The `-nocompress` option passed to adb in the section above allows to avoid this issue. You can analyse and extract SMSs containing links from the backup directly with MVT:
+MVT includes a partial implementation of the Android Backup parsing, because of the implementation difference in the compression algorithm between Java and Python. The `-nocompress` option passed to adb in the section above allows to avoid this issue. You can analyse and extract SMSs from the backup directly with MVT:
 
 ```bash
 $ mvt-android check-backup --output /path/to/results/ /path/to/backup.ab
@@ -32,10 +32,14 @@ $ mvt-android check-backup --output /path/to/results/ /path/to/backup.ab
          INFO     [mvt.android.modules.backup.sms] Running module SMS...
          INFO     [mvt.android.modules.backup.sms] Processing SMS backup file at
                   apps/com.android.providers.telephony/d_f/000000_sms_backup
-         INFO     [mvt.android.modules.backup.sms] Extracted a total of 64 SMS messages containing links
+         INFO     [mvt.android.modules.backup.sms] Extracted a total of 64 SMS messages
 ```
 
-If the backup is encrypted, MVT will prompt you to enter the password.
+If the backup is encrypted, MVT will prompt you to enter the password. A backup password can also be provided with the `--backup-password` command line option or through the `MVT_ANDROID_BACKUP_PASSWORD` environment variable. The same options can also be used to when analysing an encrypted backup collected through AndroidQF in the `mvt-android check-androidqf` command:
+
+```bash
+$ mvt-android check-backup --backup-password "password123" --output /path/to/results/ /path/to/backup.ab
+```
 
 Through the `--iocs` argument you can specify a [STIX2](https://oasis-open.github.io/cti-documentation/stix/intro) file defining a list of malicious indicators to check against the records extracted from the backup by MVT. Any matches will be highlighted in the terminal output.
 
@@ -52,4 +56,4 @@ If the backup is encrypted, ABE will prompt you to enter the password.
 
 Alternatively, [ab-decrypt](https://github.com/joernheissler/ab-decrypt) can be used for that purpose.
 
-You can then extract SMSs containing links with MVT by passing the folder path as parameter instead of the `.ab` file: `mvt-android check-backup --output /path/to/results/ /path/to/backup/` (the path to backup given should be the folder containing the `apps` folder).
+You can then extract SMSs with MVT by passing the folder path as parameter instead of the `.ab` file: `mvt-android check-backup --output /path/to/results/ /path/to/backup/` (the path to backup given should be the folder containing the `apps` folder).

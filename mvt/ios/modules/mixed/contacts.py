@@ -1,9 +1,11 @@
 # Mobile Verification Toolkit (MVT)
-# Copyright (c) 2021-2022 The MVT Project Authors.
+# Copyright (c) 2021-2023 The MVT Authors.
 # Use of this software is governed by the MVT License 1.1 that can be found at
 #   https://license.mvt.re/1.1/
 
+import logging
 import sqlite3
+from typing import Optional
 
 from ..base import IOSExtraction
 
@@ -18,26 +20,46 @@ CONTACTS_ROOT_PATHS = [
 class Contacts(IOSExtraction):
     """This module extracts all contact details from the phone's address book."""
 
-    def __init__(self, file_path=None, base_folder=None, output_folder=None,
-                 fast_mode=False, log=None, results=[]):
-        super().__init__(file_path=file_path, base_folder=base_folder,
-                         output_folder=output_folder, fast_mode=fast_mode,
-                         log=log, results=results)
+    def __init__(
+        self,
+        file_path: Optional[str] = None,
+        target_path: Optional[str] = None,
+        results_path: Optional[str] = None,
+        module_options: Optional[dict] = None,
+        log: logging.Logger = logging.getLogger(__name__),
+        results: Optional[list] = None,
+    ) -> None:
+        super().__init__(
+            file_path=file_path,
+            target_path=target_path,
+            results_path=results_path,
+            module_options=module_options,
+            log=log,
+            results=results,
+        )
 
-    def run(self):
-        self._find_ios_database(backup_ids=CONTACTS_BACKUP_IDS, root_paths=CONTACTS_ROOT_PATHS)
+    def run(self) -> None:
+        self._find_ios_database(
+            backup_ids=CONTACTS_BACKUP_IDS, root_paths=CONTACTS_ROOT_PATHS
+        )
         self.log.info("Found Contacts database at path: %s", self.file_path)
 
-        conn = sqlite3.connect(self.file_path)
+        conn = self._open_sqlite_db(self.file_path)
         cur = conn.cursor()
-        cur.execute("""
-            SELECT
-                multi.value, person.first, person.middle, person.last,
-                person.organization
-            FROM ABPerson person, ABMultiValue multi
-            WHERE person.rowid = multi.record_id and multi.value not null
-            ORDER by person.rowid ASC;
-        """)
+        try:
+            cur.execute(
+                """
+                SELECT
+                    multi.value, person.first, person.middle, person.last,
+                    person.organization
+                FROM ABPerson person, ABMultiValue multi
+                WHERE person.rowid = multi.record_id and multi.value not null
+                ORDER by person.rowid ASC;
+            """
+            )
+        except sqlite3.OperationalError as e:
+            self.log.info("Error while reading the contact table: %s", e)
+            return None
         names = [description[0] for description in cur.description]
 
         for row in cur:
@@ -50,5 +72,6 @@ class Contacts(IOSExtraction):
         cur.close()
         conn.close()
 
-        self.log.info("Extracted a total of %d contacts from the address book",
-                      len(self.results))
+        self.log.info(
+            "Extracted a total of %d contacts from the address book", len(self.results)
+        )

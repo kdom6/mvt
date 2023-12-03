@@ -1,15 +1,17 @@
 # Mobile Verification Toolkit (MVT)
-# Copyright (c) 2021-2022 The MVT Project Authors.
+# Copyright (c) 2021-2023 The MVT Authors.
 # Use of this software is governed by the MVT License 1.1 that can be found at
 #   https://license.mvt.re/1.1/
 
+import logging
 import sqlite3
+from typing import Optional
 
 from ..net_base import NetBase
 
 NETUSAGE_ROOT_PATHS = [
     "private/var/networkd/netusage.sqlite",
-    "private/var/networkd/db/netusage.sqlite"
+    "private/var/networkd/db/netusage.sqlite",
 ]
 
 
@@ -20,20 +22,36 @@ class Netusage(NetBase):
 
     """
 
-    def __init__(self, file_path=None, base_folder=None, output_folder=None,
-                 fast_mode=False, log=None, results=[]):
-        super().__init__(file_path=file_path, base_folder=base_folder,
-                         output_folder=output_folder, fast_mode=fast_mode,
-                         log=log, results=results)
+    def __init__(
+        self,
+        file_path: Optional[str] = None,
+        target_path: Optional[str] = None,
+        results_path: Optional[str] = None,
+        module_options: Optional[dict] = None,
+        log: logging.Logger = logging.getLogger(__name__),
+        results: Optional[list] = None,
+    ) -> None:
+        super().__init__(
+            file_path=file_path,
+            target_path=target_path,
+            results_path=results_path,
+            module_options=module_options,
+            log=log,
+            results=results,
+        )
 
-    def run(self):
+    def run(self) -> None:
         for netusage_path in self._get_fs_files_from_patterns(NETUSAGE_ROOT_PATHS):
             self.file_path = netusage_path
             self.log.info("Found NetUsage database at path: %s", self.file_path)
             try:
                 self._extract_net_data()
-            except sqlite3.OperationalError as e:
-                self.log.info("Skipping this NetUsage database because it seems empty or malformed: %s", e)
+            except sqlite3.OperationalError as exc:
+                self.log.info(
+                    "Skipping this NetUsage database because "
+                    "it seems empty or malformed: %s",
+                    exc,
+                )
                 continue
 
         self._find_suspicious_processes()

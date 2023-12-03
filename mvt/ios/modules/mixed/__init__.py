@@ -1,14 +1,17 @@
 # Mobile Verification Toolkit (MVT)
-# Copyright (c) 2021-2022 The MVT Project Authors.
+# Copyright (c) 2021-2023 The MVT Authors.
 # Use of this software is governed by the MVT License 1.1 that can be found at
 #   https://license.mvt.re/1.1/
 
+from .applications import Applications
+from .calendar import Calendar
 from .calls import Calls
 from .chrome_favicon import ChromeFavicon
 from .chrome_history import ChromeHistory
 from .contacts import Contacts
 from .firefox_favicon import FirefoxFavicon
 from .firefox_history import FirefoxHistory
+from .global_preferences import GlobalPreferences
 from .idstatuscache import IDStatusCache
 from .interactionc import InteractionC
 from .locationd import LocationdClients
@@ -24,8 +27,28 @@ from .webkit_resource_load_statistics import WebkitResourceLoadStatistics
 from .webkit_session_resource_log import WebkitSessionResourceLog
 from .whatsapp import Whatsapp
 
-MIXED_MODULES = [Calls, ChromeFavicon, ChromeHistory, Contacts, FirefoxFavicon,
-                 FirefoxHistory, IDStatusCache, InteractionC, LocationdClients,
-                 OSAnalyticsADDaily, Datausage, SafariBrowserState, SafariHistory,
-                 TCC, SMS, SMSAttachments, WebkitResourceLoadStatistics,
-                 WebkitSessionResourceLog, Whatsapp, Shortcuts]
+MIXED_MODULES = [
+    Calls,
+    ChromeFavicon,
+    ChromeHistory,
+    Contacts,
+    FirefoxFavicon,
+    FirefoxHistory,
+    IDStatusCache,
+    InteractionC,
+    LocationdClients,
+    OSAnalyticsADDaily,
+    Datausage,
+    SafariBrowserState,
+    SafariHistory,
+    TCC,
+    SMS,
+    SMSAttachments,
+    WebkitResourceLoadStatistics,
+    WebkitSessionResourceLog,
+    Whatsapp,
+    Shortcuts,
+    Applications,
+    Calendar,
+    GlobalPreferences,
+]

@@ -1,7 +1,9 @@
 # Mobile Verification Toolkit (MVT)
-# Copyright (c) 2021-2022 The MVT Project Authors.
+# Copyright (c) 2021-2023 The MVT Authors.
 # Use of this software is governed by the MVT License 1.1 that can be found at
 #   https://license.mvt.re/1.1/
+
+from typing import Optional
 
 import requests
 from tld import get_tld
@@ -252,9 +254,8 @@ SHORTENER_DOMAINS = [
 
 
 class URL:
-
-    def __init__(self, url):
-        if type(url) == bytes:
+    def __init__(self, url: str) -> None:
+        if isinstance(url, bytes):
             url = url.decode()
 
         self.url = url
@@ -262,7 +263,7 @@ class URL:
         self.top_level = self.get_top_level()
         self.is_shortened = False
 
-    def get_domain(self):
+    def get_domain(self) -> str:
         """Get the domain from a URL.
 
         :param url: URL to parse
@@ -271,13 +272,13 @@ class URL:
         :rtype: str
 
         """
-        # TODO: Properly handle exception.
-        try:
-            return get_tld(self.url, as_object=True, fix_protocol=True).parsed_url.netloc.lower().lstrip("www.")
-        except Exception:
-            return None
+        return (
+            get_tld(self.url, as_object=True, fix_protocol=True)
+            .parsed_url.netloc.lower()
+            .lstrip("www.")
+        )
 
-    def get_top_level(self):
+    def get_top_level(self) -> str:
         """Get only the top-level domain from a URL.
 
         :param url: URL to parse
@@ -286,11 +287,7 @@ class URL:
         :rtype: str
 
         """
-        # TODO: Properly handle exception.
-        try:
-            return get_tld(self.url, as_object=True, fix_protocol=True).fld.lower()
-        except Exception:
-            return None
+        return get_tld(self.url, as_object=True, fix_protocol=True).fld.lower()
 
     def check_if_shortened(self) -> bool:
         """Check if the URL is among list of shortener services.
@@ -306,8 +303,10 @@ class URL:
 
         return self.is_shortened
 
-    def unshorten(self):
+    def unshorten(self) -> Optional[str]:
         """Unshorten the URL by requesting an HTTP HEAD response."""
         res = requests.head(self.url)
         if str(res.status_code).startswith("30"):
             return res.headers["Location"]
+
+        return ""
