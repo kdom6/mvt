@@ -1,409 +1,399 @@
 # Mobile Verification Toolkit (MVT)
-# Copyright (c) 2021-2023 The MVT Authors.
+# Copyright (c) 2021-2022 The MVT Project Authors.
 # Use of this software is governed by the MVT License 1.1 that can be found at
 #   https://license.mvt.re/1.1/
 
+import getpass
+import io
 import logging
+import os
+import tarfile
+from pathlib import Path
+from zipfile import ZipFile
 
 import click
+from rich.logging import RichHandler
 
-from mvt.common.cmd_check_iocs import CmdCheckIOCS
-from mvt.common.help import (
-    HELP_MSG_ANDROID_BACKUP_PASSWORD,
-    HELP_MSG_FAST,
-    HELP_MSG_HASHES,
-    HELP_MSG_IOC,
-    HELP_MSG_LIST_MODULES,
-    HELP_MSG_MODULE,
-    HELP_MSG_NONINTERACTIVE,
-    HELP_MSG_OUTPUT,
-    HELP_MSG_SERIAL,
-    HELP_MSG_VERBOSE,
-)
+from mvt.android.parsers.backup import (AndroidBackupParsingError,
+                                        InvalidBackupPassword, parse_ab_header,
+                                        parse_backup_file)
+from mvt.common.help import (HELP_MSG_FAST, HELP_MSG_IOC,
+                             HELP_MSG_LIST_MODULES, HELP_MSG_MODULE,
+                             HELP_MSG_OUTPUT, HELP_MSG_SERIAL)
+from mvt.common.indicators import Indicators, download_indicators_files
 from mvt.common.logo import logo
-from mvt.common.updates import IndicatorsUpdates
-from mvt.common.utils import init_logging, set_verbose_logging
+from mvt.common.module import run_module, save_timeline
 
-from .cmd_check_adb import CmdAndroidCheckADB
-from .cmd_check_androidqf import CmdAndroidCheckAndroidQF
-from .cmd_check_backup import CmdAndroidCheckBackup
-from .cmd_check_bugreport import CmdAndroidCheckBugreport
-from .cmd_download_apks import DownloadAPKs
+from .download_apks import DownloadAPKs
+from .lookups.koodous import koodous_lookup
+from .lookups.virustotal import virustotal_lookup
 from .modules.adb import ADB_MODULES
-from .modules.adb.packages import Packages
 from .modules.backup import BACKUP_MODULES
-from .modules.backup.helpers import cli_load_android_backup_password
 from .modules.bugreport import BUGREPORT_MODULES
 
-init_logging()
-log = logging.getLogger("mvt")
+# Setup logging using Rich.
+LOG_FORMAT = "[%(name)s] %(message)s"
+logging.basicConfig(level="INFO", format=LOG_FORMAT, handlers=[
+    RichHandler(show_path=False, log_time_format="%X")])
+log = logging.getLogger(__name__)
 
-CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
-
-# ==============================================================================
+#==============================================================================
 # Main
-# ==============================================================================
+#==============================================================================
 @click.group(invoke_without_command=False)
 def cli():
     logo()
 
 
-# ==============================================================================
+#==============================================================================
 # Command: version
-# ==============================================================================
+#==============================================================================
 @cli.command("version", help="Show the currently installed version of MVT")
 def version():
     return
 
 
-# ==============================================================================
+#==============================================================================
 # Command: download-apks
-# ==============================================================================
-@cli.command(
-    "download-apks",
-    help="Download all or only non-system installed APKs",
-    context_settings=CONTEXT_SETTINGS,
-)
+#==============================================================================
+@cli.command("download-apks", help="Download all or only non-system installed APKs")
+@click.option("--ppadb", "-p", is_flag=True,
+              help="Use pure-python-adb library on 127.0.0.1:5037 instead of adb-shell (useful for TCP instead of USB connection, ADB server should be up and connected)")
 @click.option("--serial", "-s", type=str, help=HELP_MSG_SERIAL)
-@click.option(
-    "--all-apks",
-    "-a",
-    is_flag=True,
-    help="Extract all packages installed on the phone, including system packages",
-)
+@click.option("--all-apks", "-a", is_flag=True,
+              help="Extract all packages installed on the phone, including system packages")
 @click.option("--virustotal", "-v", is_flag=True, help="Check packages on VirusTotal")
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(exists=False),
-    help="Specify a path to a folder where you want to store the APKs",
-)
-@click.option(
-    "--from-file",
-    "-f",
-    type=click.Path(exists=True),
-    help="Instead of acquiring from phone, load an existing packages.json file for "
-    "lookups (mainly for debug purposes)",
-)
-@click.option("--verbose", "-v", is_flag=True, help=HELP_MSG_VERBOSE)
+@click.option("--koodous", "-k", is_flag=True, help="Check packages on Koodous")
+@click.option("--all-checks", "-A", is_flag=True, help="Run all available checks")
+@click.option("--output", "-o", type=click.Path(exists=False),
+              help="Specify a path to a folder where you want to store the APKs")
+@click.option("--from-file", "-f", type=click.Path(exists=True),
+              help="Instead of acquiring from phone, load an existing packages.json file for lookups (mainly for debug purposes)")
 @click.pass_context
-def download_apks(ctx, all_apks, virustotal, output, from_file, serial, verbose):
-    set_verbose_logging(verbose)
+def download_apks(ctx, all_apks, virustotal, koodous, all_checks, output, from_file, serial):
     try:
         if from_file:
             download = DownloadAPKs.from_json(from_file)
         else:
-            # TODO: Do we actually want to be able to run without storing any
-            #       file?
+            # TODO: Do we actually want to be able to run without storing any file?
             if not output:
                 log.critical("You need to specify an output folder with --output!")
                 ctx.exit(1)
 
-            download = DownloadAPKs(results_path=output, all_apks=all_apks)
+            if not os.path.exists(output):
+                try:
+                    os.makedirs(output)
+                except Exception as e:
+                    log.critical("Unable to create output folder %s: %s", output, e)
+                    ctx.exit(1)
+
+            download = DownloadAPKs(output_folder=output, all_apks=all_apks,
+                                    log=logging.getLogger(DownloadAPKs.__module__))
             if serial:
                 download.serial = serial
+            if ppadb:
+                download.ppadb = True
             download.run()
 
-        packages_to_lookup = []
-        if all_apks:
-            packages_to_lookup = download.packages
-        else:
-            for package in download.packages:
-                if not package.get("system", False):
-                    packages_to_lookup.append(package)
+        packages = download.packages
 
-            if len(packages_to_lookup) == 0:
-                return
+        if len(packages) == 0:
+            return
 
-        if virustotal:
-            m = Packages()
-            m.check_virustotal(packages_to_lookup)
+        if virustotal or all_checks:
+            virustotal_lookup(packages)
+
+        if koodous or all_checks:
+            koodous_lookup(packages)
     except KeyboardInterrupt:
         print("")
         ctx.exit(1)
 
 
-# ==============================================================================
+#==============================================================================
 # Command: check-adb
-# ==============================================================================
-@cli.command(
-    "check-adb",
-    help="Check an Android device over ADB",
-    context_settings=CONTEXT_SETTINGS,
-)
+#==============================================================================
+@cli.command("check-adb", help="Check an Android device over adb")
+@click.option("--ppadb", "-p", is_flag=True,
+              help="Use pure-python-adb library on 127.0.0.1:5037 instead of adb-shell (useful for TCP instead of USB connection, ADB server should be up and connected)")
 @click.option("--serial", "-s", type=str, help=HELP_MSG_SERIAL)
-@click.option(
-    "--iocs",
-    "-i",
-    type=click.Path(exists=True),
-    multiple=True,
-    default=[],
-    help=HELP_MSG_IOC,
-)
-@click.option("--output", "-o", type=click.Path(exists=False), help=HELP_MSG_OUTPUT)
+@click.option("--iocs", "-i", type=click.Path(exists=True), multiple=True,
+              default=[], help=HELP_MSG_IOC)
+@click.option("--output", "-o", type=click.Path(exists=False),
+              help=HELP_MSG_OUTPUT)
 @click.option("--fast", "-f", is_flag=True, help=HELP_MSG_FAST)
 @click.option("--list-modules", "-l", is_flag=True, help=HELP_MSG_LIST_MODULES)
 @click.option("--module", "-m", help=HELP_MSG_MODULE)
-@click.option("--non-interactive", "-n", is_flag=True, help=HELP_MSG_NONINTERACTIVE)
-@click.option("--backup-password", "-p", help=HELP_MSG_ANDROID_BACKUP_PASSWORD)
-@click.option("--verbose", "-v", is_flag=True, help=HELP_MSG_VERBOSE)
 @click.pass_context
-def check_adb(
-    ctx,
-    serial,
-    iocs,
-    output,
-    fast,
-    list_modules,
-    module,
-    non_interactive,
-    backup_password,
-    verbose,
-):
-    set_verbose_logging(verbose)
-    module_options = {
-        "fast_mode": fast,
-        "interactive": not non_interactive,
-        "backup_password": cli_load_android_backup_password(log, backup_password),
-    }
-
-    cmd = CmdAndroidCheckADB(
-        results_path=output,
-        ioc_files=iocs,
-        module_name=module,
-        serial=serial,
-        module_options=module_options,
-    )
-
+def check_adb(ctx, iocs, output, fast, list_modules, module, serial, ppadb):
     if list_modules:
-        cmd.list_modules()
+        log.info("Following is the list of available check-adb modules:")
+        for adb_module in ADB_MODULES:
+            log.info(" - %s", adb_module.__name__)
+
         return
 
-    log.info("Checking Android device over debug bridge")
+    log.info("Checking Android through adb bridge")
 
-    cmd.run()
+    if output and not os.path.exists(output):
+        try:
+            os.makedirs(output)
+        except Exception as e:
+            log.critical("Unable to create output folder %s: %s", output, e)
+            ctx.exit(1)
 
-    if cmd.detected_count > 0:
-        log.warning(
-            "The analysis of the Android device produced %d detections!",
-            cmd.detected_count,
-        )
+    indicators = Indicators(log=log)
+    indicators.load_indicators_files(iocs)
+
+    timeline = []
+    timeline_detected = []
+    for adb_module in ADB_MODULES:
+        if module and adb_module.__name__ != module:
+            continue
+
+        m = adb_module(output_folder=output, fast_mode=fast,
+                       log=logging.getLogger(adb_module.__module__))
+        if indicators.total_ioc_count:
+            m.indicators = indicators
+            m.indicators.log = m.log
+        if serial:
+            m.serial = serial
+        if ppadb:
+            m.ppadb = True
+
+        run_module(m)
+        timeline.extend(m.timeline)
+        timeline_detected.extend(m.timeline_detected)
+
+    if output:
+        if len(timeline) > 0:
+            save_timeline(timeline, os.path.join(output, "timeline.csv"))
+        if len(timeline_detected) > 0:
+            save_timeline(timeline_detected, os.path.join(output, "timeline_detected.csv"))
 
 
-# ==============================================================================
+#==============================================================================
 # Command: check-bugreport
-# ==============================================================================
-@cli.command(
-    "check-bugreport",
-    help="Check an Android Bug Report",
-    context_settings=CONTEXT_SETTINGS,
-)
-@click.option(
-    "--iocs",
-    "-i",
-    type=click.Path(exists=True),
-    multiple=True,
-    default=[],
-    help=HELP_MSG_IOC,
-)
+#==============================================================================
+@cli.command("check-bugreport", help="Check an Android Bug Report")
+@click.option("--iocs", "-i", type=click.Path(exists=True), multiple=True,
+              default=[], help=HELP_MSG_IOC)
 @click.option("--output", "-o", type=click.Path(exists=False), help=HELP_MSG_OUTPUT)
 @click.option("--list-modules", "-l", is_flag=True, help=HELP_MSG_LIST_MODULES)
 @click.option("--module", "-m", help=HELP_MSG_MODULE)
-@click.option("--verbose", "-v", is_flag=True, help=HELP_MSG_VERBOSE)
 @click.argument("BUGREPORT_PATH", type=click.Path(exists=True))
 @click.pass_context
-def check_bugreport(ctx, iocs, output, list_modules, module, verbose, bugreport_path):
-    set_verbose_logging(verbose)
-    # Always generate hashes as bug reports are small.
-    cmd = CmdAndroidCheckBugreport(
-        target_path=bugreport_path,
-        results_path=output,
-        ioc_files=iocs,
-        module_name=module,
-        hashes=True,
-    )
-
+def check_bugreport(ctx, iocs, output, list_modules, module, bugreport_path):
     if list_modules:
-        cmd.list_modules()
+        log.info("Following is the list of available check-bugreport modules:")
+        for adb_module in BUGREPORT_MODULES:
+            log.info(" - %s", adb_module.__name__)
+
         return
 
-    log.info("Checking Android bug report at path: %s", bugreport_path)
+    log.info("Checking an Android Bug Report located at: %s", bugreport_path)
 
-    cmd.run()
+    if output and not os.path.exists(output):
+        try:
+            os.makedirs(output)
+        except Exception as e:
+            log.critical("Unable to create output folder %s: %s", output, e)
+            ctx.exit(1)
 
-    if cmd.detected_count > 0:
-        log.warning(
-            "The analysis of the Android bug report produced %d detections!",
-            cmd.detected_count,
-        )
+    indicators = Indicators(log=log)
+    indicators.load_indicators_files(iocs)
+
+    if os.path.isfile(bugreport_path):
+        bugreport_format = "zip"
+        zip_archive = ZipFile(bugreport_path)
+        zip_files = []
+        for file_name in zip_archive.namelist():
+            zip_files.append(file_name)
+    elif os.path.isdir(bugreport_path):
+        bugreport_format = "dir"
+        folder_files = []
+        parent_path = Path(bugreport_path).absolute().as_posix()
+        for root, subdirs, subfiles in os.walk(os.path.abspath(bugreport_path)):
+            for file_name in subfiles:
+                folder_files.append(os.path.relpath(os.path.join(root, file_name), parent_path))
+
+    timeline = []
+    timeline_detected = []
+    for bugreport_module in BUGREPORT_MODULES:
+        if module and bugreport_module.__name__ != module:
+            continue
+
+        m = bugreport_module(base_folder=bugreport_path, output_folder=output,
+                             log=logging.getLogger(bugreport_module.__module__))
+
+        if bugreport_format == "zip":
+            m.from_zip(zip_archive, zip_files)
+        else:
+            m.from_folder(bugreport_path, folder_files)
+
+        if indicators.total_ioc_count:
+            m.indicators = indicators
+            m.indicators.log = m.log
+
+        run_module(m)
+        timeline.extend(m.timeline)
+        timeline_detected.extend(m.timeline_detected)
+
+    if output:
+        if len(timeline) > 0:
+            save_timeline(timeline, os.path.join(output, "timeline.csv"))
+        if len(timeline_detected) > 0:
+            save_timeline(timeline_detected, os.path.join(output, "timeline_detected.csv"))
 
 
-# ==============================================================================
+#==============================================================================
 # Command: check-backup
-# ==============================================================================
-@cli.command(
-    "check-backup", help="Check an Android Backup", context_settings=CONTEXT_SETTINGS
-)
-@click.option(
-    "--iocs",
-    "-i",
-    type=click.Path(exists=True),
-    multiple=True,
-    default=[],
-    help=HELP_MSG_IOC,
-)
+#==============================================================================
+@cli.command("check-backup", help="Check an Android Backup")
+@click.option("--serial", "-s", type=str, help=HELP_MSG_SERIAL)
+@click.option("--iocs", "-i", type=click.Path(exists=True), multiple=True,
+              default=[], help=HELP_MSG_IOC)
 @click.option("--output", "-o", type=click.Path(exists=False), help=HELP_MSG_OUTPUT)
-@click.option("--list-modules", "-l", is_flag=True, help=HELP_MSG_LIST_MODULES)
-@click.option("--non-interactive", "-n", is_flag=True, help=HELP_MSG_NONINTERACTIVE)
-@click.option("--backup-password", "-p", help=HELP_MSG_ANDROID_BACKUP_PASSWORD)
-@click.option("--verbose", "-v", is_flag=True, help=HELP_MSG_VERBOSE)
 @click.argument("BACKUP_PATH", type=click.Path(exists=True))
 @click.pass_context
-def check_backup(
-    ctx,
-    iocs,
-    output,
-    list_modules,
-    non_interactive,
-    backup_password,
-    verbose,
-    backup_path,
-):
-    set_verbose_logging(verbose)
+def check_backup(ctx, iocs, output, backup_path, serial):
+    log.info("Checking ADB backup located at: %s", backup_path)
 
-    # Always generate hashes as backups are generally small.
-    cmd = CmdAndroidCheckBackup(
-        target_path=backup_path,
-        results_path=output,
-        ioc_files=iocs,
-        hashes=True,
-        module_options={
-            "interactive": not non_interactive,
-            "backup_password": cli_load_android_backup_password(log, backup_password),
-        },
-    )
+    if os.path.isfile(backup_path):
+        # AB File
+        backup_type = "ab"
+        with open(backup_path, "rb") as handle:
+            data = handle.read()
+        header = parse_ab_header(data)
+        if not header["backup"]:
+            log.critical("Invalid backup format, file should be in .ab format")
+            ctx.exit(1)
+        password = None
+        if header["encryption"] != "none":
+            password = getpass.getpass(prompt="Backup Password: ", stream=None)
+        try:
+            tardata = parse_backup_file(data, password=password)
+        except InvalidBackupPassword:
+            log.critical("Invalid backup password")
+            ctx.exit(1)
+        except AndroidBackupParsingError:
+            log.critical("Impossible to parse this backup file, please use Android Backup Extractor instead")
+            ctx.exit(1)
 
-    if list_modules:
-        cmd.list_modules()
-        return
+        dbytes = io.BytesIO(tardata)
+        tar = tarfile.open(fileobj=dbytes)
+        files = []
+        for member in tar:
+            files.append(member.name)
 
-    log.info("Checking Android backup at path: %s", backup_path)
+    elif os.path.isdir(backup_path):
+        backup_type = "folder"
+        backup_path = Path(backup_path).absolute().as_posix()
+        files = []
+        for root, subdirs, subfiles in os.walk(os.path.abspath(backup_path)):
+            for fname in subfiles:
+                files.append(os.path.relpath(os.path.join(root, fname), backup_path))
+    else:
+        log.critical("Invalid backup path, path should be a folder or an Android Backup (.ab) file")
+        ctx.exit(1)
 
-    cmd.run()
+    if output and not os.path.exists(output):
+        try:
+            os.makedirs(output)
+        except Exception as e:
+            log.critical("Unable to create output folder %s: %s", output, e)
+            ctx.exit(1)
 
-    if cmd.detected_count > 0:
-        log.warning(
-            "The analysis of the Android backup produced %d detections!",
-            cmd.detected_count,
-        )
+    indicators = Indicators(log=log)
+    indicators.load_indicators_files(iocs)
 
+    for module in BACKUP_MODULES:
+        m = module(base_folder=backup_path, output_folder=output,
+                   log=logging.getLogger(module.__module__))
+        if indicators.total_ioc_count:
+            m.indicators = indicators
+            m.indicators.log = m.log
+        if serial:
+            m.serial = serial
 
-# ==============================================================================
-# Command: check-androidqf
-# ==============================================================================
-@cli.command(
-    "check-androidqf",
-    help="Check data collected with AndroidQF",
-    context_settings=CONTEXT_SETTINGS,
-)
-@click.option(
-    "--iocs",
-    "-i",
-    type=click.Path(exists=True),
-    multiple=True,
-    default=[],
-    help=HELP_MSG_IOC,
-)
-@click.option("--output", "-o", type=click.Path(exists=False), help=HELP_MSG_OUTPUT)
-@click.option("--list-modules", "-l", is_flag=True, help=HELP_MSG_LIST_MODULES)
-@click.option("--module", "-m", help=HELP_MSG_MODULE)
-@click.option("--hashes", "-H", is_flag=True, help=HELP_MSG_HASHES)
-@click.option("--non-interactive", "-n", is_flag=True, help=HELP_MSG_NONINTERACTIVE)
-@click.option("--backup-password", "-p", help=HELP_MSG_ANDROID_BACKUP_PASSWORD)
-@click.option("--verbose", "-v", is_flag=True, help=HELP_MSG_VERBOSE)
-@click.argument("ANDROIDQF_PATH", type=click.Path(exists=True))
-@click.pass_context
-def check_androidqf(
-    ctx,
-    iocs,
-    output,
-    list_modules,
-    module,
-    hashes,
-    non_interactive,
-    backup_password,
-    verbose,
-    androidqf_path,
-):
-    set_verbose_logging(verbose)
+        if backup_type == "folder":
+            m.from_folder(backup_path, files)
+        else:
+            m.from_ab(backup_path, tar, files)
 
-    cmd = CmdAndroidCheckAndroidQF(
-        target_path=androidqf_path,
-        results_path=output,
-        ioc_files=iocs,
-        module_name=module,
-        hashes=hashes,
-        module_options={
-            "interactive": not non_interactive,
-            "backup_password": cli_load_android_backup_password(log, backup_password),
-        },
-    )
-
-    if list_modules:
-        cmd.list_modules()
-        return
-
-    log.info("Checking AndroidQF acquisition at path: %s", androidqf_path)
-
-    cmd.run()
-
-    if cmd.detected_count > 0:
-        log.warning(
-            "The analysis of the AndroidQF acquisition produced %d detections!",
-            cmd.detected_count,
-        )
+        run_module(m)
 
 
-# ==============================================================================
+#==============================================================================
 # Command: check-iocs
-# ==============================================================================
-@cli.command(
-    "check-iocs",
-    help="Compare stored JSON results to provided indicators",
-    context_settings=CONTEXT_SETTINGS,
-)
-@click.option(
-    "--iocs",
-    "-i",
-    type=click.Path(exists=True),
-    multiple=True,
-    default=[],
-    help=HELP_MSG_IOC,
-)
+#==============================================================================
+@cli.command("check-iocs", help="Compare stored JSON results to provided indicators")
+@click.option("--iocs", "-i", type=click.Path(exists=True), multiple=True,
+              default=[], help=HELP_MSG_IOC)
 @click.option("--list-modules", "-l", is_flag=True, help=HELP_MSG_LIST_MODULES)
 @click.option("--module", "-m", help=HELP_MSG_MODULE)
 @click.argument("FOLDER", type=click.Path(exists=True))
 @click.pass_context
 def check_iocs(ctx, iocs, list_modules, module, folder):
-    cmd = CmdCheckIOCS(target_path=folder, ioc_files=iocs, module_name=module)
-    cmd.modules = BACKUP_MODULES + ADB_MODULES + BUGREPORT_MODULES
+    all_modules = []
+    for entry in BACKUP_MODULES + ADB_MODULES:
+        if entry not in all_modules:
+            all_modules.append(entry)
 
     if list_modules:
-        cmd.list_modules()
+        log.info("Following is the list of available check-iocs modules:")
+        for iocs_module in all_modules:
+            log.info(" - %s", iocs_module.__name__)
+
         return
 
-    cmd.run()
+    log.info("Checking stored results against provided indicators...")
+
+    indicators = Indicators(log=log)
+    indicators.load_indicators_files(iocs)
+
+    total_detections = 0
+    for file_name in os.listdir(folder):
+        name_only, ext = os.path.splitext(file_name)
+        file_path = os.path.join(folder, file_name)
+
+        # TODO: Skipping processing of result files that are not json.
+        #       We might want to revisit this eventually.
+        if ext != ".json":
+            continue
+
+        for iocs_module in all_modules:
+            if module and iocs_module.__name__ != module:
+                continue
+
+            if iocs_module().get_slug() != name_only:
+                continue
+
+            log.info("Loading results from \"%s\" with module %s", file_name,
+                     iocs_module.__name__)
+
+            m = iocs_module.from_json(file_path,
+                                      log=logging.getLogger(iocs_module.__module__))
+            if indicators.total_ioc_count > 0:
+                m.indicators = indicators
+                m.indicators.log = m.log
+
+            try:
+                m.check_indicators()
+            except NotImplementedError:
+                continue
+            else:
+                total_detections += len(m.detected)
+
+    if total_detections > 0:
+        log.warning("The check of the results produced %d detections!",
+                    total_detections)
 
 
-# ==============================================================================
+#==============================================================================
 # Command: download-iocs
-# ==============================================================================
-@cli.command(
-    "download-iocs",
-    help="Download public STIX2 indicators",
-    context_settings=CONTEXT_SETTINGS,
-)
+#==============================================================================
+@cli.command("download-iocs", help="Download public STIX2 indicators")
 def download_indicators():
-    ioc_updates = IndicatorsUpdates()
-    ioc_updates.update()
+    download_indicators_files(log)
